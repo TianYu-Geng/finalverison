@@ -21,6 +21,12 @@ def _to_numpy_action(x):
     return np.asarray(x, dtype=np.float32)
 
 
+def _sanitize_tensor(x, clamp=1e3):
+    if not isinstance(x, torch.Tensor):
+        return x
+    return torch.nan_to_num(x, nan=0.0, posinf=clamp, neginf=-clamp)
+
+
 def _build_prior_value(prior, observation_t, config, env, normalizer, eval_deterministic=True, runtime_state=None):
     num_samples = getattr(config, "num_vis_samples", 16)
 
@@ -416,6 +422,7 @@ def evaluate_prior_with_trajectories(
             else:
                 traj_all = traj_out
                 traj_history = None
+            traj_all = _sanitize_tensor(traj_all, clamp=1e3)
 
             if episode_denoise_history is None and traj_history is not None:
                 episode_denoise_history = traj_history
@@ -433,12 +440,14 @@ def evaluate_prior_with_trajectories(
                 traj = traj_all[:1]
                 selected_plan_idx = 0
                 plan_debug = {}
+            traj = _sanitize_tensor(traj, clamp=1e3)
             if episode_structured_prior is not None:
                 episode_structured_prior.debug_info["selected_plan_index"] = int(selected_plan_idx)
                 episode_structured_prior.debug_info.update(plan_debug)
 
             policy_prior = torch.zeros((1, config.action_dim), device=device, dtype=torch.float32)
             next_obs_plan = traj[:, 1, :]
+            next_obs_plan = _sanitize_tensor(next_obs_plan, clamp=1e3)
             obs_policy = observation_t.clone().unsqueeze(0)
             next_obs_policy = next_obs_plan.clone()
 
@@ -464,8 +473,11 @@ def evaluate_prior_with_trajectories(
                 condition_cfg=torch.cat([obs_policy, next_obs_policy], dim=-1),
                 temperature=config.policy_temperature,
             )
+            action = _sanitize_tensor(action, clamp=10.0)
 
             action_np = _to_numpy_action(torch.squeeze(action))
+            if hasattr(env.action_space, "low") and hasattr(env.action_space, "high"):
+                action_np = np.clip(action_np, env.action_space.low, env.action_space.high)
             observation, reward, done, _ = env.step(action_np)
             episode_traj.append(np.array(observation, copy=True))
 

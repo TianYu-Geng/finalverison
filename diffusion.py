@@ -287,6 +287,8 @@ class ContinuousDiffusionSDE:
                 )
                 x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
 
+            x_theta = torch.nan_to_num(x_theta, nan=0.0, posinf=1e3, neginf=-1e3)
+
             eps_theta = xtheta_to_epstheta(xt, alphas[i], sigmas[i], x_theta)
 
             if solver == "ddim":
@@ -298,6 +300,7 @@ class ContinuousDiffusionSDE:
                 raise NotImplementedError()
 
             xt = xt * (1.0 - fix_mask) + prior * fix_mask
+            xt = torch.nan_to_num(xt, nan=0.0, posinf=1e3, neginf=-1e3)
 
             if return_intermediates:
                 intermediates.append(xt.detach().clone())
