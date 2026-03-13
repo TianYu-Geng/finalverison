@@ -144,6 +144,7 @@ def build_structured_prior(pg_proposal: PGProposal, map_prior, normalizer, confi
         guidance={
             "type": "weak_center_pull",
             "enabled": bool(_cfg(config, "prior_struct_enable_guidance", False)),
+            "corridor_start_ratio": float(_cfg(config, "corridor_start_ratio", 0.5)),
             "strength": float(_cfg(config, "prior_struct_guidance_strength", 0.02)),
             "max_step": float(_cfg(config, "prior_struct_guidance_max_step", 0.03)),
             "boundary_margin": float(_cfg(config, "prior_struct_guidance_boundary_margin", 0.15)),

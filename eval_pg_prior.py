@@ -98,6 +98,15 @@ flags.DEFINE_integer('num_vis_samples', 16, 'number of planner samples for denoi
 flags.DEFINE_float('prior_init_noise_scale', 0.003, 'noise scale around prior initialization for denoise visualization')
 flags.DEFINE_bool('debug_vis', False, 'print visualization debug info')
 flags.DEFINE_bool('save_individual_denoise_steps', True, 'save individual denoise step figures')
+flags.DEFINE_bool("use_lomap", False, "Enable LoMAP manifold projection during planner sampling")
+flags.DEFINE_string("lomap_store_path", "", "Path to the lightweight LoMAP datastore")
+flags.DEFINE_integer("lomap_topk", 8, "Number of nearest trajectories used for local PCA projection")
+flags.DEFINE_integer("lomap_prefilter_k", 256, "Endpoint-based prefilter size for LoMAP search")
+flags.DEFINE_float("lomap_pca_tau", 0.95, "Explained-variance target for LoMAP PCA")
+flags.DEFINE_float("lomap_blend", 1.0, "Interpolation weight between xt and projected xt")
+flags.DEFINE_float("lomap_active_start_ratio", 0.5, "Start ratio of reverse denoising steps where LoMAP is active")
+flags.DEFINE_float("lomap_active_end_ratio", 1.0, "End ratio of reverse denoising steps where LoMAP is active")
+flags.DEFINE_float("corridor_start_ratio", 0.5, "Reverse denoising ratio where corridor guidance starts")
 
 
 def set_seed(seed: int):
@@ -420,6 +429,7 @@ def evaluate_pg_prior_once(config):
         env,
         normalizer,
         eval_deterministic=config.eval_deterministic,
+        critic=critic,
     )
     return eval_info, normalizer
 

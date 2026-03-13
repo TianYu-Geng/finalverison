@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from lomap_runtime import build_lomap_projector
 from prior_struct import build_prior_struct
 
 
@@ -47,15 +48,36 @@ def _build_prior_value(prior, observation_t, config, env, normalizer, eval_deter
     return prior_value, None
 
 
-def _select_best_planned_traj(traj_all, goal_xy):
-    if traj_all.shape[0] == 1 or goal_xy is None:
-        return traj_all[:1], 0
+def _select_best_planned_traj(traj_all, critic=None, goal_xy=None):
+    if traj_all.shape[0] == 1:
+        return traj_all[:1], 0, {}
 
-    goal_xy_t = torch.as_tensor(goal_xy, device=traj_all.device, dtype=traj_all.dtype)
-    final_xy = traj_all[:, -1, :2]
-    dist = torch.linalg.norm(final_xy - goal_xy_t.view(1, 2), dim=-1)
-    best_idx = int(torch.argmin(dist).item())
-    return traj_all[best_idx:best_idx + 1], best_idx
+    debug = {}
+    if critic is not None:
+        values = critic.eval_forward(traj_all).reshape(-1)
+        best_idx = int(torch.argmax(values).item())
+        debug["critic_scores"] = values.detach().cpu().numpy()
+        return traj_all[best_idx:best_idx + 1], best_idx, debug
+
+    if goal_xy is not None:
+        goal_xy_t = torch.as_tensor(goal_xy, device=traj_all.device, dtype=traj_all.dtype)
+        final_xy = traj_all[:, -1, :2]
+        dist = torch.linalg.norm(final_xy - goal_xy_t.view(1, 2), dim=-1)
+        best_idx = int(torch.argmin(dist).item())
+        debug["goal_distance"] = dist.detach().cpu().numpy()
+        return traj_all[best_idx:best_idx + 1], best_idx, debug
+
+    return traj_all[:1], 0, debug
+
+
+def _get_lomap_projector(config, device, runtime_cache):
+    if not bool(getattr(config, "use_lomap", False)):
+        return None
+    projector = runtime_cache.get("lomap_projector")
+    if projector is None:
+        projector = build_lomap_projector(config=config, device=device)
+        runtime_cache["lomap_projector"] = projector
+    return projector
 
 
 def evaluate(planner, policy, critic, planner_model, policy_model, config, env, normalizer):
@@ -160,7 +182,16 @@ def evaluate(planner, policy, critic, planner_model, policy_model, config, env, 
     return {"return": mean, "return_std": err}
 
 
-def evaluate_prior(planner, policy, prior, config, env, normalizer, eval_deterministic=True):
+def evaluate_prior(
+    planner,
+    policy,
+    prior,
+    config,
+    env,
+    normalizer,
+    eval_deterministic=True,
+    critic=None,
+):
     env = gym.wrappers.RecordEpisodeStatistics(env, deque_size=config.num_episodes)
     progress = tqdm(range(config.num_episodes))
 
@@ -175,6 +206,7 @@ def evaluate_prior(planner, policy, prior, config, env, normalizer, eval_determi
         planner.model.eval()
 
     shared_prior_runtime_cache = {}
+    lomap_runtime_cache = {}
 
     for _ in progress:
         observation, cum_done, ep_reward, t = env.reset(), 0.0, 0.0, 0
@@ -186,6 +218,7 @@ def evaluate_prior(planner, policy, prior, config, env, normalizer, eval_determi
             observation_t = _to_tensor(observation, device=device, dtype=torch.float32)
 
             with torch.no_grad():
+                lomap_projector = _get_lomap_projector(config, device, lomap_runtime_cache)
                 prior_value, structured_prior = _build_prior_value(
                     prior=prior,
                     observation_t=observation_t,
@@ -206,10 +239,11 @@ def evaluate_prior(planner, policy, prior, config, env, normalizer, eval_determi
                     temperature=config.planner_temperature,
                     prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                     guidance=structured_prior.guidance if structured_prior is not None else None,
+                    lomap_projector=lomap_projector,
                 )
                 if traj.shape[0] > 1:
                     goal_xy = getattr(env.unwrapped, "_target", None)
-                    traj, _ = _select_best_planned_traj(traj, goal_xy)
+                    traj, _, _ = _select_best_planned_traj(traj, critic=critic, goal_xy=goal_xy)
                 else:
                     traj = traj[:1]
 
@@ -286,6 +320,7 @@ def evaluate_prior_with_trajectories(
     env,
     normalizer,
     eval_deterministic=True,
+    critic=None,
 ):
     env = gym.wrappers.RecordEpisodeStatistics(env, deque_size=config.num_episodes)
     progress = tqdm(range(config.num_episodes))
@@ -307,6 +342,7 @@ def evaluate_prior_with_trajectories(
         planner.model.eval()
 
     shared_prior_runtime_cache = {}
+    lomap_runtime_cache = {}
 
     for _ in progress:
         observation, cum_done, ep_reward, t = env.reset(), 0.0, 0.0, 0
@@ -347,6 +383,7 @@ def evaluate_prior_with_trajectories(
                 episode_structured_prior = structured_prior
 
             record_intermediates = bool(getattr(config, "save_denoise_process", False))
+            lomap_projector = _get_lomap_projector(config, device, lomap_runtime_cache)
             traj_out = planner.sample_prior(
                 obs_repeat,
                 prior=prior_value,
@@ -357,6 +394,7 @@ def evaluate_prior_with_trajectories(
                 return_intermediates=record_intermediates,
                 prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                 guidance=structured_prior.guidance if structured_prior is not None else None,
+                lomap_projector=lomap_projector,
             )
 
             if isinstance(traj_out, tuple):
@@ -370,12 +408,18 @@ def evaluate_prior_with_trajectories(
 
             if traj_all.shape[0] > 1:
                 goal_xy = getattr(env.unwrapped, "_target", None)
-                traj, selected_plan_idx = _select_best_planned_traj(traj_all, goal_xy)
+                traj, selected_plan_idx, plan_debug = _select_best_planned_traj(
+                    traj_all,
+                    critic=critic,
+                    goal_xy=goal_xy,
+                )
             else:
                 traj = traj_all[:1]
                 selected_plan_idx = 0
+                plan_debug = {}
             if episode_structured_prior is not None:
                 episode_structured_prior.debug_info["selected_plan_index"] = int(selected_plan_idx)
+                episode_structured_prior.debug_info.update(plan_debug)
 
             policy_prior = torch.zeros((1, config.action_dim), device=device, dtype=torch.float32)
             next_obs_plan = traj[:, 1, :]

@@ -218,6 +218,7 @@ class ContinuousDiffusionSDE:
         return_intermediates: bool = False,
         prior_init_noise_scale: float = 0.003,
         guidance=None,
+        lomap_projector=None,
     ):
         device = observation.device
         dtype = observation.dtype
@@ -257,10 +258,20 @@ class ContinuousDiffusionSDE:
 
         for i in reversed(loop_steps):
             t = torch.full((batch_size,), sample_step_schedule[i].item(), device=device, dtype=dtype)
+            xt = xt * (1.0 - fix_mask) + prior * fix_mask
+
+            corridor_ratio = float(guidance.get("corridor_start_ratio", 0.5)) if guidance is not None else 0.5
+
             pred = self.model.diffusion(xt, t, condition=None, use_condition=False, train_condition=False)
             pred = self.clip_prediction(pred, xt, alphas[i], sigmas[i])
 
             eps_theta = pred if self.predict_noise else xtheta_to_epstheta(xt, alphas[i], sigmas[i], pred)
+            x_theta = pred if not self.predict_noise else epstheta_to_xtheta(xt, alphas[i], sigmas[i], pred)
+
+            if lomap_projector is not None:
+                x_theta = lomap_projector.project(x_theta, step_index=i, total_steps=sample_steps)
+                x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
+                eps_theta = xtheta_to_epstheta(xt, alphas[i], sigmas[i], x_theta)
 
             if solver == "ddim":
                 xt = (
@@ -271,8 +282,9 @@ class ContinuousDiffusionSDE:
                 raise NotImplementedError()
 
             xt = xt * (1.0 - fix_mask) + prior * fix_mask
-            xt = weak_center_pull_step(xt, guidance)
-            xt = xt * (1.0 - fix_mask) + prior * fix_mask
+            if guidance is not None and (float(i) / float(max(sample_steps, 1))) <= corridor_ratio:
+                xt = weak_center_pull_step(xt, guidance)
+                xt = xt * (1.0 - fix_mask) + prior * fix_mask
 
             if return_intermediates:
                 intermediates.append(xt.detach().clone())
