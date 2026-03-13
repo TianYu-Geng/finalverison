@@ -22,10 +22,10 @@ nohup.out
 wandb/
 
 # 实验结果、评估输出（可复现，不应进 Git）
-results/
+# results/
 runs/
-checkpoints/
-checkpoints*/
+# checkpoints/
+# checkpoints*/
 outputs/
 
 # Ray 运行与鉴权文件（机器相关 + 私密）
