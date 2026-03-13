@@ -71,8 +71,34 @@ def _select_best_planned_traj(traj_all, critic=None, goal_xy=None):
     debug = {}
     if critic is not None:
         values = critic.eval_forward(traj_all).reshape(-1)
-        best_idx = int(torch.argmax(values).item())
         debug["critic_scores"] = values.detach().cpu().numpy()
+        if goal_xy is not None:
+            goal_xy_t = torch.as_tensor(goal_xy, device=traj_all.device, dtype=traj_all.dtype)
+            start_xy = traj_all[:, 0, :2]
+            final_xy = traj_all[:, -1, :2]
+            end_goal_dist = torch.linalg.norm(final_xy - goal_xy_t.view(1, 2), dim=-1)
+            min_goal_dist = torch.min(torch.linalg.norm(traj_all[:, :, :2] - goal_xy_t.view(1, 1, 2), dim=-1), dim=1).values
+            start_goal_dist = torch.linalg.norm(goal_xy_t.view(1, 2) - start_xy, dim=-1).clamp_min(1e-6)
+            progress_scores = (start_goal_dist - end_goal_dist) / start_goal_dist
+            goal_scores = 1.0 - torch.clamp(min_goal_dist / start_goal_dist, 0.0, 1.5)
+            step_deltas = traj_all[:, 1:, :2] - traj_all[:, :-1, :2]
+            path_lengths = torch.sum(torch.linalg.norm(step_deltas, dim=-1), dim=-1)
+            path_lengths = path_lengths / path_lengths.min().clamp_min(1e-6)
+
+            final_scores = (
+                float(getattr(critic, "_final_critic_weight", 1.0)) * values
+                + float(getattr(critic, "_final_progress_weight", 0.75)) * progress_scores
+                + float(getattr(critic, "_final_goal_weight", 0.5)) * goal_scores
+                - float(getattr(critic, "_final_length_weight", 0.25)) * path_lengths
+            )
+            best_idx = int(torch.argmax(final_scores).item())
+            debug["goal_distance"] = end_goal_dist.detach().cpu().numpy()
+            debug["path_lengths"] = path_lengths.detach().cpu().numpy()
+            debug["progress_scores"] = progress_scores.detach().cpu().numpy()
+            debug["goal_scores"] = goal_scores.detach().cpu().numpy()
+            debug["final_scores"] = final_scores.detach().cpu().numpy()
+        else:
+            best_idx = int(torch.argmax(values).item())
         return traj_all[best_idx:best_idx + 1], best_idx, debug
 
     if goal_xy is not None:
@@ -232,6 +258,11 @@ def evaluate_prior(
         policy.model.eval()
     if hasattr(planner, "model"):
         planner.model.eval()
+    if critic is not None:
+        critic._final_critic_weight = float(getattr(config, "prior_struct_final_critic_weight", 1.0))
+        critic._final_progress_weight = float(getattr(config, "prior_struct_final_progress_weight", 0.75))
+        critic._final_length_weight = float(getattr(config, "prior_struct_final_length_weight", 0.25))
+        critic._final_goal_weight = float(getattr(config, "prior_struct_final_goal_weight", 0.5))
 
     shared_prior_runtime_cache = {}
     lomap_runtime_cache = {}
@@ -376,6 +407,11 @@ def evaluate_prior_with_trajectories(
         policy.model.eval()
     if hasattr(planner, "model"):
         planner.model.eval()
+    if critic is not None:
+        critic._final_critic_weight = float(getattr(config, "prior_struct_final_critic_weight", 1.0))
+        critic._final_progress_weight = float(getattr(config, "prior_struct_final_progress_weight", 0.75))
+        critic._final_length_weight = float(getattr(config, "prior_struct_final_length_weight", 0.25))
+        critic._final_goal_weight = float(getattr(config, "prior_struct_final_goal_weight", 0.5))
 
     shared_prior_runtime_cache = {}
     lomap_runtime_cache = {}

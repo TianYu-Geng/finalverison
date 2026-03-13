@@ -145,10 +145,26 @@ def score_pg_candidates_by_branch(pg_proposal: PGProposal, map_prior, normalizer
     time_weights = time_weights / time_weights.sum().clamp_min(1e-6)
 
     per_branch_scores = []
-    per_branch_debug = {"branch_support_means": [], "branch_inside_ratios": [], "branch_boundary_scores": []}
+    per_branch_debug = {
+        "branch_support_means": [],
+        "branch_inside_ratios": [],
+        "branch_boundary_scores": [],
+        "branch_progress_scores": [],
+        "branch_goal_scores": [],
+        "branch_path_cost_penalty": [],
+    }
     boundary_clip = float(_cfg(config, "prior_struct_boundary_clip", 0.5))
+    start_xy = torch.as_tensor(map_prior.start_xy, device=candidates.device, dtype=candidates.dtype)
+    goal_xy = torch.as_tensor(map_prior.goal_xy, device=candidates.device, dtype=candidates.dtype)
+    start_goal_dist = torch.linalg.norm(goal_xy - start_xy).clamp_min(1e-6)
+    branch_costs = torch.as_tensor(
+        [float(branch.path_cost) for branch in map_prior.branch_fields],
+        device=candidates.device,
+        dtype=candidates.dtype,
+    )
+    branch_costs = branch_costs / branch_costs.min().clamp_min(1e-6)
 
-    for branch_field in map_prior.branch_fields:
+    for branch_id, branch_field in enumerate(map_prior.branch_fields):
         support_soft_field = _cached_branch_tensor(branch_field, "support_soft_hr", candidates)
         support_field = _cached_branch_tensor(branch_field, "support_hr", candidates)
         boundary_field = _cached_branch_tensor(branch_field, "distance_to_boundary_hr", candidates)
@@ -161,17 +177,28 @@ def score_pg_candidates_by_branch(pg_proposal: PGProposal, map_prior, normalizer
         inside_ratios = torch.mean(inside_vals, dim=1)
         boundary_scores = torch.mean(boundary_vals, dim=1)
         endpoint_support = support_soft_vals[:, -1]
+        end_goal_dist = torch.linalg.norm(xy[:, -1, :] - goal_xy.view(1, 2), dim=1)
+        min_goal_dist = torch.min(torch.linalg.norm(xy - goal_xy.view(1, 1, 2), dim=2), dim=1).values
+        progress_scores = (start_goal_dist - end_goal_dist) / start_goal_dist
+        goal_scores = 1.0 - torch.clamp(min_goal_dist / start_goal_dist, 0.0, 1.5)
+        path_cost_penalty = branch_costs[branch_id].expand_as(progress_scores)
 
         branch_score = (
             float(_cfg(config, "prior_struct_support_soft_weight", 1.0)) * support_soft_means
             + float(_cfg(config, "prior_struct_inside_ratio_weight", 2.0)) * inside_ratios
             + float(_cfg(config, "prior_struct_boundary_weight", 0.5)) * boundary_scores
             + float(_cfg(config, "prior_struct_endpoint_support_weight", 1.0)) * endpoint_support
+            + float(_cfg(config, "prior_struct_branch_progress_weight", 1.0)) * progress_scores
+            + float(_cfg(config, "prior_struct_branch_goal_weight", 1.0)) * goal_scores
+            - float(_cfg(config, "prior_struct_branch_path_cost_weight", 0.35)) * path_cost_penalty
         )
         per_branch_scores.append(branch_score)
         per_branch_debug["branch_support_means"].append(_to_numpy(support_soft_means))
         per_branch_debug["branch_inside_ratios"].append(_to_numpy(inside_ratios))
         per_branch_debug["branch_boundary_scores"].append(_to_numpy(boundary_scores))
+        per_branch_debug["branch_progress_scores"].append(_to_numpy(progress_scores))
+        per_branch_debug["branch_goal_scores"].append(_to_numpy(goal_scores))
+        per_branch_debug["branch_path_cost_penalty"].append(_to_numpy(path_cost_penalty))
 
     branch_scores = torch.stack(per_branch_scores, dim=1)
     selected_branch_ids = torch.argmax(branch_scores, dim=1)
