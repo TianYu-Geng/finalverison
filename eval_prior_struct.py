@@ -186,6 +186,19 @@ def save_all_rollout_visualizations(config, occupancy, eval_info):
 
 
 def save_summary(config, eval_info):
+    def _json_safe(obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.generic):
+            return obj.item()
+        if hasattr(obj, "detach"):
+            return _json_safe(obj.detach().cpu().numpy())
+        if isinstance(obj, dict):
+            return {str(k): _json_safe(v) for k, v in obj.items() if k != "_tensor_cache"}
+        if isinstance(obj, (list, tuple)):
+            return [_json_safe(v) for v in obj]
+        return obj
+
     episode_returns = np.asarray(eval_info.get("episode_returns", []), dtype=np.float32)
     if episode_returns.size == 0:
         return None
@@ -203,11 +216,7 @@ def save_summary(config, eval_info):
     structured_priors = eval_info.get("structured_priors") or []
     if structured_priors and structured_priors[0] is not None:
         debug_info = structured_priors[0].debug_info
-        summary["structured_prior_debug"] = {
-            k: (v.tolist() if isinstance(v, np.ndarray) else v)
-            for k, v in debug_info.items()
-            if k != "_tensor_cache"
-        }
+        summary["structured_prior_debug"] = _json_safe(debug_info)
     save_path = join(config.vis_dir, f"summary_{config.env_name}_seed{config.seed}_pg{config.pg_ckpt}.json")
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)

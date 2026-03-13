@@ -27,6 +27,16 @@ def _sanitize_tensor(x, clamp=1e3):
     return torch.nan_to_num(x, nan=0.0, posinf=clamp, neginf=-clamp)
 
 
+def _update_eval_progress(progress, episode_idx, env_step, ep_reward, structured_prior=None):
+    branch = "-"
+    if structured_prior is not None:
+        branch = int(getattr(structured_prior, "selected_branch_id", -1))
+    progress.set_postfix_str(
+        f"ep={episode_idx} step={env_step} reward={float(np.asarray(ep_reward).mean()):.2f} branch={branch}",
+        refresh=False,
+    )
+
+
 def _build_prior_value(prior, observation_t, config, env, normalizer, eval_deterministic=True, runtime_state=None):
     num_samples = getattr(config, "num_vis_samples", 16)
 
@@ -225,7 +235,7 @@ def evaluate_prior(
     shared_prior_runtime_cache = {}
     lomap_runtime_cache = {}
 
-    for _ in progress:
+    for episode_idx in progress:
         observation, cum_done, ep_reward, t = env.reset(), 0.0, 0.0, 0
         finished = np.zeros(1, dtype=bool)
         prior_runtime_state = dict(shared_prior_runtime_cache)
@@ -259,6 +269,7 @@ def evaluate_prior(
                     lomap_projector=lomap_projector,
                     lomap_context=_build_lomap_context(structured_prior),
                 )
+                _update_eval_progress(progress, episode_idx, t, ep_reward, structured_prior)
                 if traj.shape[0] > 1:
                     goal_xy = getattr(env.unwrapped, "_target", None)
                     traj, _, _ = _select_best_planned_traj(traj, critic=critic, goal_xy=goal_xy)
@@ -363,7 +374,7 @@ def evaluate_prior_with_trajectories(
     shared_prior_runtime_cache = {}
     lomap_runtime_cache = {}
 
-    for _ in progress:
+    for episode_idx in progress:
         observation, cum_done, ep_reward, t = env.reset(), 0.0, 0.0, 0
 
         finished = np.zeros(1, dtype=bool)
@@ -416,6 +427,7 @@ def evaluate_prior_with_trajectories(
                 lomap_projector=lomap_projector,
                 lomap_context=_build_lomap_context(structured_prior),
             )
+            _update_eval_progress(progress, episode_idx, t, ep_reward, structured_prior)
 
             if isinstance(traj_out, tuple):
                 traj_all, traj_history = traj_out
