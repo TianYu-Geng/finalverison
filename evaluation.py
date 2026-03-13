@@ -36,7 +36,7 @@ def _build_prior_value(prior, observation_t, config, env, normalizer, eval_deter
             eval_deterministic=eval_deterministic,
             runtime_state=runtime_state,
         )
-        return structured_prior.selected_future_obs, structured_prior
+        return structured_prior.fused_prior_state, structured_prior
 
     obs_repeat = observation_t.unsqueeze(0).repeat(num_samples, 1)
     dist = prior.eval_forward(obs_repeat)
@@ -78,6 +78,17 @@ def _get_lomap_projector(config, device, runtime_cache):
         projector = build_lomap_projector(config=config, device=device)
         runtime_cache["lomap_projector"] = projector
     return projector
+
+
+def _build_lomap_context(structured_prior):
+    if structured_prior is None:
+        return None
+    return {
+        "selected_branch_id": int(structured_prior.selected_branch_id),
+        "map_prior": structured_prior.support,
+        "obs_mean_xy": structured_prior.guidance["obs_mean_xy"],
+        "obs_std_xy": structured_prior.guidance["obs_std_xy"],
+    }
 
 
 def evaluate(planner, policy, critic, planner_model, policy_model, config, env, normalizer):
@@ -240,6 +251,7 @@ def evaluate_prior(
                     prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                     guidance=structured_prior.guidance if structured_prior is not None else None,
                     lomap_projector=lomap_projector,
+                    lomap_context=_build_lomap_context(structured_prior),
                 )
                 if traj.shape[0] > 1:
                     goal_xy = getattr(env.unwrapped, "_target", None)
@@ -396,6 +408,7 @@ def evaluate_prior_with_trajectories(
                 prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                 guidance=structured_prior.guidance if structured_prior is not None else None,
                 lomap_projector=lomap_projector,
+                lomap_context=_build_lomap_context(structured_prior),
             )
 
             if isinstance(traj_out, tuple):

@@ -46,12 +46,17 @@ flags.DEFINE_float("prior_struct_guidance_strength", 0.02, "Weak center guidance
 flags.DEFINE_float("prior_struct_guidance_max_step", 0.03, "Max world-space weak guidance step")
 flags.DEFINE_float("prior_struct_guidance_boundary_margin", 0.15, "Boundary margin for weak guidance activation")
 flags.DEFINE_float("prior_struct_guidance_activation_temp", 0.05, "Activation temperature for weak guidance")
+flags.DEFINE_float("prior_struct_guidance_late_stage_power", 1.5, "Late-stage guidance ramp power")
+flags.DEFINE_float("prior_struct_guidance_center_pull_weight", 1.0, "Center-distance contribution to branch guidance")
+flags.DEFINE_float("prior_struct_guidance_support_pull_weight", 1.0, "Support-threshold contribution to branch guidance")
+flags.DEFINE_float("prior_struct_guidance_boundary_pull_weight", 1.0, "Boundary-distance contribution to branch guidance")
 flags.DEFINE_bool("save_all_rollouts", True, "Save rollout figure for every episode")
 flags.DEFINE_bool("save_summary_json", True, "Save summary json with episode returns")
 
 
 def render_support_field(occupancy, structured_prior, start_xy, goal_xy, save_path):
     support = structured_prior.support
+    selected_branch_id = int(structured_prior.selected_branch_id)
     h, w = occupancy.shape
     fig, ax = plt.subplots(figsize=(6, 6))
     wall_img = np.where(occupancy, 0.0, 1.0)
@@ -71,7 +76,7 @@ def render_support_field(occupancy, structured_prior, start_xy, goal_xy, save_pa
     ax.set_xlim(-0.5, w - 0.5)
     ax.set_ylim(-0.5, h - 0.5)
     ax.set_aspect("equal")
-    ax.set_title("corridor support")
+    ax.set_title(f"corridor support | branch={selected_branch_id}")
     plt.tight_layout()
     plt.savefig(save_path, dpi=220)
     plt.close(fig)
@@ -96,7 +101,7 @@ def render_candidate_set(occupancy, structured_prior, normalizer, start_xy, goal
     ax.set_xlim(-0.5, w - 0.5)
     ax.set_ylim(-0.5, h - 0.5)
     ax.set_aspect("equal")
-    ax.set_title("PG candidates and selected prior")
+    ax.set_title(f"PG candidates and selected prior | branch={int(structured_prior.selected_branch_id)}")
     plt.tight_layout()
     plt.savefig(save_path, dpi=220)
     plt.close(fig)
@@ -249,6 +254,12 @@ def main(_):
         return
 
     structured_prior = structured_priors[0]
+    print(
+        "[prior_struct]",
+        f"branch={structured_prior.selected_branch_id}",
+        f"candidate_indices={structured_prior.selected_indices}",
+        f"branch_ids={structured_prior.selected_branch_ids}",
+    )
     save_support = join(config.vis_dir, f"support_{config.env_name}_seed{config.seed}_pg{config.pg_ckpt}.png")
     render_support_field(occupancy, structured_prior, start_xy, goal_xy, save_support)
     print(f"[save] support figure saved to: {save_support}")

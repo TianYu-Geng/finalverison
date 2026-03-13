@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from .types import PGProposal, StructuredPrior
+from .types import BranchStructField, PGProposal, StructuredPrior
 
 
 def _cfg(config, name, default):
@@ -20,6 +20,16 @@ def _cached_map_tensor(map_prior, key, ref):
     value = cache.get(cache_key)
     if value is None:
         value = torch.as_tensor(getattr(map_prior, key), device=ref.device, dtype=ref.dtype)
+        cache[cache_key] = value
+    return value
+
+
+def _cached_branch_tensor(branch_field: BranchStructField, key, ref):
+    cache = branch_field.debug_info.setdefault("_tensor_cache", {})
+    cache_key = (key, str(ref.device), str(ref.dtype))
+    value = cache.get(cache_key)
+    if value is None:
+        value = torch.as_tensor(getattr(branch_field, key), device=ref.device, dtype=ref.dtype)
         cache[cache_key] = value
     return value
 
@@ -116,8 +126,67 @@ def score_pg_candidates_with_support(pg_proposal: PGProposal, map_prior, normali
     }
 
 
+def score_pg_candidates_by_branch(pg_proposal: PGProposal, map_prior, normalizer, config):
+    candidates = pg_proposal.candidates_future_obs
+    mean_xy = torch.as_tensor(normalizer.mean[:2], device=candidates.device, dtype=candidates.dtype)
+    std_xy = torch.as_tensor(normalizer.std[:2], device=candidates.device, dtype=candidates.dtype).clamp_min(1e-6)
+    xy = candidates[:, :, :2] * std_xy.view(1, 1, 2) + mean_xy.view(1, 1, 2)
+    y = xy[:, :, 0]
+    x = xy[:, :, 1]
+
+    horizon = candidates.shape[1]
+    time_weights = torch.linspace(
+        float(_cfg(config, "prior_struct_time_weight_start", 0.8)),
+        float(_cfg(config, "prior_struct_time_weight_end", 1.2)),
+        horizon,
+        device=candidates.device,
+        dtype=candidates.dtype,
+    )
+    time_weights = time_weights / time_weights.sum().clamp_min(1e-6)
+
+    per_branch_scores = []
+    per_branch_debug = {"branch_support_means": [], "branch_inside_ratios": [], "branch_boundary_scores": []}
+    boundary_clip = float(_cfg(config, "prior_struct_boundary_clip", 0.5))
+
+    for branch_field in map_prior.branch_fields:
+        support_soft_field = _cached_branch_tensor(branch_field, "support_soft_hr", candidates)
+        support_field = _cached_branch_tensor(branch_field, "support_hr", candidates)
+        boundary_field = _cached_branch_tensor(branch_field, "distance_to_boundary_hr", candidates)
+
+        support_soft_vals = _bilinear_sample_grid_torch(support_soft_field, x, y, map_prior.scale)
+        inside_vals = _bilinear_sample_grid_torch(support_field, x, y, map_prior.scale)
+        boundary_vals = _bilinear_sample_grid_torch(boundary_field, x, y, map_prior.scale).clamp_max(boundary_clip)
+
+        support_soft_means = torch.sum(support_soft_vals * time_weights.view(1, -1), dim=1)
+        inside_ratios = torch.mean(inside_vals, dim=1)
+        boundary_scores = torch.mean(boundary_vals, dim=1)
+        endpoint_support = support_soft_vals[:, -1]
+
+        branch_score = (
+            float(_cfg(config, "prior_struct_support_soft_weight", 1.0)) * support_soft_means
+            + float(_cfg(config, "prior_struct_inside_ratio_weight", 2.0)) * inside_ratios
+            + float(_cfg(config, "prior_struct_boundary_weight", 0.5)) * boundary_scores
+            + float(_cfg(config, "prior_struct_endpoint_support_weight", 1.0)) * endpoint_support
+        )
+        per_branch_scores.append(branch_score)
+        per_branch_debug["branch_support_means"].append(_to_numpy(support_soft_means))
+        per_branch_debug["branch_inside_ratios"].append(_to_numpy(inside_ratios))
+        per_branch_debug["branch_boundary_scores"].append(_to_numpy(boundary_scores))
+
+    branch_scores = torch.stack(per_branch_scores, dim=1)
+    selected_branch_ids = torch.argmax(branch_scores, dim=1)
+    selected_branch_scores = branch_scores.gather(1, selected_branch_ids.unsqueeze(1)).squeeze(1)
+    per_branch_debug["selected_branch_ids"] = _to_numpy(selected_branch_ids)
+    per_branch_debug["branch_scores"] = _to_numpy(branch_scores)
+    per_branch_debug["selected_branch_scores"] = _to_numpy(selected_branch_scores)
+    return branch_scores, selected_branch_ids, selected_branch_scores, per_branch_debug
+
+
 def build_structured_prior(pg_proposal: PGProposal, map_prior, normalizer, config, planner_batch_size):
     score_support, support_debug = score_pg_candidates_with_support(
+        pg_proposal, map_prior, normalizer, config
+    )
+    branch_scores, selected_branch_ids, score_branch, branch_debug = score_pg_candidates_by_branch(
         pg_proposal, map_prior, normalizer, config
     )
 
@@ -125,39 +194,61 @@ def build_structured_prior(pg_proposal: PGProposal, map_prior, normalizer, confi
     score_total = (
         float(_cfg(config, "prior_struct_pg_weight", 0.15)) * score_pg
         + float(_cfg(config, "prior_struct_support_weight", 1.0)) * score_support
+        + float(_cfg(config, "prior_struct_support_weight", 1.0)) * score_branch
     )
     topk = min(int(planner_batch_size), int(score_total.shape[0]))
     topk_indices = torch.argsort(score_total, descending=True)[:topk]
     selected_index = int(topk_indices[0].item())
     selected_future_obs = pg_proposal.candidates_future_obs[topk_indices]
+    fused_prior_state = selected_future_obs
+    selected_branch_id = int(selected_branch_ids[selected_index].item())
+    selected_branch_ids_topk = selected_branch_ids[topk_indices]
+    selected_branch_field = map_prior.branch_fields[selected_branch_id]
     normalizer_mean = _to_numpy(normalizer.mean)
     normalizer_std = _to_numpy(normalizer.std)
 
     return StructuredPrior(
         support=map_prior,
         pg_density=pg_proposal,
+        fused_prior_state=fused_prior_state,
         selected_future_obs=selected_future_obs,
         score_support=score_support,
         score_total=score_total,
+        score_branch=score_branch,
+        branch_scores=branch_scores,
         selected_index=selected_index,
         selected_indices=[int(x) for x in _to_numpy(topk_indices).tolist()],
+        selected_branch_id=selected_branch_id,
+        selected_branch_ids=[int(x) for x in _to_numpy(selected_branch_ids_topk).tolist()],
         guidance={
-            "type": "weak_center_pull",
+            "type": "branch_corridor_guidance",
             "enabled": bool(_cfg(config, "prior_struct_enable_guidance", False)),
             "corridor_start_ratio": float(_cfg(config, "corridor_start_ratio", 0.5)),
             "strength": float(_cfg(config, "prior_struct_guidance_strength", 0.02)),
             "max_step": float(_cfg(config, "prior_struct_guidance_max_step", 0.03)),
             "boundary_margin": float(_cfg(config, "prior_struct_guidance_boundary_margin", 0.15)),
             "activation_temp": float(_cfg(config, "prior_struct_guidance_activation_temp", 0.05)),
+            "late_stage_power": float(_cfg(config, "prior_struct_guidance_late_stage_power", 1.5)),
+            "center_pull_weight": float(_cfg(config, "prior_struct_guidance_center_pull_weight", 1.0)),
+            "support_pull_weight": float(_cfg(config, "prior_struct_guidance_support_pull_weight", 1.0)),
+            "boundary_pull_weight": float(_cfg(config, "prior_struct_guidance_boundary_pull_weight", 1.0)),
             "support_threshold": float(map_prior.support_threshold),
             "scale": int(map_prior.scale),
-            "support_soft_hr": map_prior.support_soft_hr,
-            "distance_to_boundary_hr": map_prior.distance_to_boundary_hr,
-            "grad_center_row_hr": map_prior.grad_center_row_hr,
-            "grad_center_col_hr": map_prior.grad_center_col_hr,
+            "branch_id": selected_branch_id,
+            "support_soft_hr": selected_branch_field.support_soft_hr,
+            "distance_to_center_hr": selected_branch_field.distance_to_center_hr,
+            "distance_to_boundary_hr": selected_branch_field.distance_to_boundary_hr,
+            "grad_center_row_hr": selected_branch_field.grad_center_row_hr,
+            "grad_center_col_hr": selected_branch_field.grad_center_col_hr,
             "obs_mean_xy": normalizer_mean[:2],
             "obs_std_xy": normalizer_std[:2],
         },
-        debug_info={**support_debug, "topk_indices": [int(x) for x in _to_numpy(topk_indices).tolist()]},
+        debug_info={
+            **support_debug,
+            **branch_debug,
+            "topk_indices": [int(x) for x in _to_numpy(topk_indices).tolist()],
+            "selected_branch_id": selected_branch_id,
+            "selected_branch_ids_topk": [int(x) for x in _to_numpy(selected_branch_ids_topk).tolist()],
+        },
         selected_future_obs_world=None,
     )

@@ -219,6 +219,7 @@ class ContinuousDiffusionSDE:
         prior_init_noise_scale: float = 0.003,
         guidance=None,
         lomap_projector=None,
+        lomap_context=None,
     ):
         device = observation.device
         dtype = observation.dtype
@@ -270,11 +271,20 @@ class ContinuousDiffusionSDE:
             x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
 
             if lomap_projector is not None:
-                x_theta = lomap_projector.project(x_theta, step_index=i, total_steps=sample_steps)
+                x_theta = lomap_projector.project(
+                    x_theta,
+                    step_index=i,
+                    total_steps=sample_steps,
+                    context=lomap_context,
+                )
                 x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
 
             if guidance is not None and (float(i) / float(max(sample_steps, 1))) <= corridor_ratio:
-                x_theta = weak_center_pull_step(x_theta, guidance)
+                x_theta = weak_center_pull_step(
+                    x_theta,
+                    guidance,
+                    step_ratio=float(i) / float(max(sample_steps, 1)),
+                )
                 x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
 
             eps_theta = xtheta_to_epstheta(xt, alphas[i], sigmas[i], x_theta)

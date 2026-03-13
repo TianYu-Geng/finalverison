@@ -15,6 +15,7 @@ from diffuser_change.maze2d_prior.field_utils import (
 )
 
 from .types import MapStructPrior
+from .types import BranchStructField
 
 
 def _cfg(config, name, default):
@@ -91,6 +92,49 @@ def build_map_struct_prior_from_occupancy(occupancy, start_cell, goal_cell, conf
     grad_center_row_hr[~support_free] = 0.0
     grad_center_col_hr[~support_free] = 0.0
 
+    branch_fields = []
+    for branch_id, ((cell_path, path_cost), per_path, phi_hr, dist_hr) in enumerate(
+        zip(multi_paths, field_dict["per_path"], field_dict["phi_stack"], field_dict["dist_stack"])
+    ):
+        branch_support_soft_hr = phi_hr.astype(np.float32)
+        branch_support_hr = branch_support_soft_hr >= support_threshold
+        branch_support_free = branch_support_hr & (~field_dict["occ_hr"])
+
+        branch_distance_to_boundary_hr = (
+            distance_transform_edt(branch_support_free).astype(np.float32) / float(field_dict["scale"])
+        )
+        branch_distance_to_boundary_hr[~branch_support_free] = 0.0
+
+        branch_centerline_potential_hr = dist_hr.astype(np.float32).copy()
+        if np.any(branch_support_free):
+            obstacle_fill = float(np.max(branch_centerline_potential_hr[branch_support_free]))
+        else:
+            obstacle_fill = 0.0
+        branch_centerline_potential_hr[~branch_support_free] = obstacle_fill
+
+        branch_grad_row_hr, branch_grad_col_hr = np.gradient(branch_centerline_potential_hr)
+        branch_grad_row_hr[~branch_support_free] = 0.0
+        branch_grad_col_hr[~branch_support_free] = 0.0
+
+        branch_fields.append(
+            BranchStructField(
+                branch_id=branch_id,
+                cell_path=cell_path,
+                path_cost=float(path_cost),
+                support_hr=branch_support_hr.astype(np.float32),
+                support_soft_hr=branch_support_soft_hr,
+                distance_to_center_hr=dist_hr.astype(np.float32),
+                distance_to_boundary_hr=branch_distance_to_boundary_hr,
+                centerline_potential_hr=branch_centerline_potential_hr,
+                grad_center_row_hr=branch_grad_row_hr.astype(np.float32),
+                grad_center_col_hr=branch_grad_col_hr.astype(np.float32),
+                debug_info={
+                    "polyline_xy": per_path["polyline_xy"],
+                    "clearance_hr": per_path["clearance_hr"],
+                },
+            )
+        )
+
     return MapStructPrior(
         occupancy=occupancy,
         start_xy=np.asarray(start_cell, dtype=np.float32),
@@ -107,6 +151,7 @@ def build_map_struct_prior_from_occupancy(occupancy, start_cell, goal_cell, conf
         grad_center_col_hr=grad_center_col_hr.astype(np.float32),
         scale=int(field_dict["scale"]),
         support_threshold=float(support_threshold),
+        branch_fields=branch_fields,
         debug_info={"field_dict": field_dict},
     )
 
