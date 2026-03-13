@@ -267,11 +267,17 @@ class ContinuousDiffusionSDE:
 
             eps_theta = pred if self.predict_noise else xtheta_to_epstheta(xt, alphas[i], sigmas[i], pred)
             x_theta = pred if not self.predict_noise else epstheta_to_xtheta(xt, alphas[i], sigmas[i], pred)
+            x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
 
             if lomap_projector is not None:
                 x_theta = lomap_projector.project(x_theta, step_index=i, total_steps=sample_steps)
                 x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
-                eps_theta = xtheta_to_epstheta(xt, alphas[i], sigmas[i], x_theta)
+
+            if guidance is not None and (float(i) / float(max(sample_steps, 1))) <= corridor_ratio:
+                x_theta = weak_center_pull_step(x_theta, guidance)
+                x_theta = x_theta * (1.0 - fix_mask) + prior * fix_mask
+
+            eps_theta = xtheta_to_epstheta(xt, alphas[i], sigmas[i], x_theta)
 
             if solver == "ddim":
                 xt = (
@@ -282,9 +288,6 @@ class ContinuousDiffusionSDE:
                 raise NotImplementedError()
 
             xt = xt * (1.0 - fix_mask) + prior * fix_mask
-            if guidance is not None and (float(i) / float(max(sample_steps, 1))) <= corridor_ratio:
-                xt = weak_center_pull_step(xt, guidance)
-                xt = xt * (1.0 - fix_mask) + prior * fix_mask
 
             if return_intermediates:
                 intermediates.append(xt.detach().clone())

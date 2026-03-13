@@ -73,13 +73,14 @@ class LoMAPProjector:
     def _query_neighbors(self, xt: torch.Tensor) -> torch.Tensor:
         batch = xt.shape[0]
         xt_flat = xt.reshape(batch, -1)
+        query_start = xt[:, 0, :2]
         query_end = xt[:, -1, :2]
 
         prefilter_k = min(int(self.prefilter_k), self.datastore.size)
         topk = min(int(self.topk), prefilter_k)
 
-        end_dist = torch.cdist(query_end, self.datastore.final_xy)
-        candidate_idx = torch.topk(end_dist, k=prefilter_k, largest=False, dim=1).indices
+        sg_dist = torch.cdist(query_start, self.datastore.start_xy) + torch.cdist(query_end, self.datastore.final_xy)
+        candidate_idx = torch.topk(sg_dist, k=prefilter_k, largest=False, dim=1).indices
 
         flat_candidates = self._flat[candidate_idx]
         full_dist = torch.linalg.norm(flat_candidates - xt_flat.unsqueeze(1), dim=-1)

@@ -9,6 +9,7 @@ import torch
 @dataclass
 class LoMAPDatastore:
     trajectories: torch.Tensor
+    start_xy: torch.Tensor
     final_xy: torch.Tensor
     metadata: dict
 
@@ -55,7 +56,13 @@ def load_lomap_datastore(path, device):
             "dim": int(traj_np.shape[2]),
         }
         trajectories = torch.from_numpy(traj_np).float().to(device)
+        start_xy = trajectories[:, 0, :2]
         final_xy = torch.from_numpy(final_xy_np).float().to(device)
-        return LoMAPDatastore(trajectories=trajectories, final_xy=final_xy, metadata=metadata)
+        return LoMAPDatastore(
+            trajectories=trajectories,
+            start_xy=start_xy,
+            final_xy=final_xy,
+            metadata=metadata,
+        )
 
     raise ValueError(f"Unsupported LoMAP datastore format: {store_path}")
