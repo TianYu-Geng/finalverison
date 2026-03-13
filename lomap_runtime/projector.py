@@ -22,7 +22,8 @@ class LoMAPProjector:
 
     def __post_init__(self):
         self.local_manifold = LocalManifold(device=self.device)
-        self._flat = self.datastore.trajectories.reshape(self.datastore.size, -1)
+        self._runtime_traj = None
+        self._flat = None
 
     def enabled_for_step(self, step_index: Optional[int], total_steps: Optional[int]) -> bool:
         if step_index is None or total_steps is None or total_steps <= 0:
@@ -36,12 +37,37 @@ class LoMAPProjector:
             return xt
 
         self.stats["calls"] = int(self.stats.get("calls", 0)) + 1
+        self._ensure_runtime_view(xt)
         neighbors = self._query_neighbors(xt)
         self.local_manifold.compute_pca(neighbors, tau=self.pca_tau)
         projected = self.local_manifold.project_points(xt)
         if self.blend < 1.0:
             projected = xt + self.blend * (projected - xt)
         return projected
+
+    def _ensure_runtime_view(self, xt: torch.Tensor):
+        traj = self.datastore.trajectories
+        target_horizon = int(xt.shape[1])
+        target_dim = int(xt.shape[2])
+
+        if self._runtime_traj is not None:
+            if self._runtime_traj.shape[1] == target_horizon and self._runtime_traj.shape[2] == target_dim:
+                return
+
+        if traj.shape[1] < target_horizon:
+            raise ValueError(
+                f"LoMAP datastore horizon {traj.shape[1]} is smaller than planner horizon {target_horizon}"
+            )
+        if traj.shape[2] < target_dim:
+            raise ValueError(
+                f"LoMAP datastore dim {traj.shape[2]} is smaller than planner dim {target_dim}"
+            )
+
+        runtime_traj = traj[:, :target_horizon, :target_dim].contiguous()
+        self._runtime_traj = runtime_traj
+        self._flat = runtime_traj.reshape(runtime_traj.shape[0], -1)
+        self.stats["matched_horizon"] = target_horizon
+        self.stats["matched_dim"] = target_dim
 
     @torch.no_grad()
     def _query_neighbors(self, xt: torch.Tensor) -> torch.Tensor:
@@ -60,7 +86,7 @@ class LoMAPProjector:
         local_idx = torch.topk(full_dist, k=topk, largest=False, dim=1).indices
 
         gather_idx = candidate_idx.gather(1, local_idx)
-        return self.datastore.trajectories[gather_idx]
+        return self._runtime_traj[gather_idx]
 
 
 def build_lomap_projector(config, device):

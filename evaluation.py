@@ -333,6 +333,7 @@ def evaluate_prior_with_trajectories(
     all_denoise_histories = []
     all_priors = []
     all_structured_priors = []
+    all_plan_candidates = []
 
     if hasattr(prior, "eval"):
         prior.eval()
@@ -405,6 +406,8 @@ def evaluate_prior_with_trajectories(
 
             if episode_denoise_history is None and traj_history is not None:
                 episode_denoise_history = traj_history
+            if len(all_plan_candidates) < len(all_trajectories) + 1:
+                all_plan_candidates.append(traj_all.detach().cpu().numpy().copy())
 
             if traj_all.shape[0] > 1:
                 goal_xy = getattr(env.unwrapped, "_target", None)
@@ -520,4 +523,5 @@ def evaluate_prior_with_trajectories(
         "denoise_histories": all_denoise_histories,
         "priors": all_priors,
         "structured_priors": all_structured_priors,
+        "plan_candidates": all_plan_candidates,
     }

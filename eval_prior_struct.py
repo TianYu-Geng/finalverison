@@ -102,6 +102,32 @@ def render_candidate_set(occupancy, structured_prior, normalizer, start_xy, goal
     plt.close(fig)
 
 
+def render_plan_candidates(occupancy, plan_candidates, normalizer, structured_prior, start_xy, goal_xy, save_path):
+    trajs = normalizer.unnormalize(plan_candidates).astype(np.float32)
+    selected_index = int(structured_prior.debug_info.get("selected_plan_index", 0))
+    h, w = occupancy.shape
+    fig, ax = plt.subplots(figsize=(6, 6))
+    wall_img = np.where(occupancy, 0.0, 1.0)
+    ax.imshow(wall_img, cmap="gray", origin="lower", extent=[-0.5, w - 0.5, -0.5, h - 0.5])
+
+    for i in range(trajs.shape[0]):
+        xy = trajs[i, :, :2]
+        alpha = 0.15 if i != selected_index else 0.95
+        width = 1.0 if i != selected_index else 2.8
+        color = "tab:green" if i != selected_index else "tab:red"
+        ax.plot(xy[:, 1], xy[:, 0], linewidth=width, alpha=alpha, color=color)
+
+    ax.scatter(start_xy[1], start_xy[0], s=100, marker="o")
+    ax.scatter(goal_xy[1], goal_xy[0], s=120, marker="*")
+    ax.set_xlim(-0.5, w - 0.5)
+    ax.set_ylim(-0.5, h - 0.5)
+    ax.set_aspect("equal")
+    ax.set_title("planner candidates and critic-selected trajectory")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=220)
+    plt.close(fig)
+
+
 def _trajectory_for_vis(traj, success_step, post_success_steps=10):
     traj = np.asarray(traj, dtype=np.float32)
     if success_step is None:
@@ -169,6 +195,14 @@ def save_summary(config, eval_info):
         "return_var": float(np.var(episode_returns)),
         "episode_returns": episode_returns.tolist(),
     }
+    structured_priors = eval_info.get("structured_priors") or []
+    if structured_priors and structured_priors[0] is not None:
+        debug_info = structured_priors[0].debug_info
+        summary["structured_prior_debug"] = {
+            k: (v.tolist() if isinstance(v, np.ndarray) else v)
+            for k, v in debug_info.items()
+            if k != "_tensor_cache"
+        }
     save_path = join(config.vis_dir, f"summary_{config.env_name}_seed{config.seed}_pg{config.pg_ckpt}.json")
     with open(save_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
@@ -222,6 +256,23 @@ def main(_):
     save_candidates = join(config.vis_dir, f"candidates_{config.env_name}_seed{config.seed}_pg{config.pg_ckpt}.png")
     render_candidate_set(occupancy, structured_prior, normalizer, start_xy, goal_xy, save_candidates)
     print(f"[save] candidate figure saved to: {save_candidates}")
+
+    plan_candidates = eval_info.get("plan_candidates")
+    if plan_candidates and len(plan_candidates) > 0:
+        save_plan_candidates = join(
+            config.vis_dir,
+            f"plan_candidates_{config.env_name}_seed{config.seed}_pg{config.pg_ckpt}.png",
+        )
+        render_plan_candidates(
+            occupancy,
+            plan_candidates[0],
+            normalizer,
+            structured_prior,
+            start_xy,
+            goal_xy,
+            save_plan_candidates,
+        )
+        print(f"[save] planner candidate figure saved to: {save_plan_candidates}")
 
 
 if __name__ == "__main__":
