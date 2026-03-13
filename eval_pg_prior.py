@@ -98,6 +98,7 @@ flags.DEFINE_integer('num_vis_samples', 16, 'number of planner samples for denoi
 flags.DEFINE_float('prior_init_noise_scale', 0.003, 'noise scale around prior initialization for denoise visualization')
 flags.DEFINE_bool('debug_vis', False, 'print visualization debug info')
 flags.DEFINE_bool('save_individual_denoise_steps', True, 'save individual denoise step figures')
+flags.DEFINE_bool("show_sampling_progress", False, "Show inner diffusion sampling progress")
 flags.DEFINE_bool("use_lomap", False, "Enable LoMAP manifold projection during planner sampling")
 flags.DEFINE_string("lomap_store_path", "", "Path to the lightweight LoMAP datastore")
 flags.DEFINE_integer("lomap_topk", 8, "Number of nearest trajectories used for local PCA projection")

@@ -4,6 +4,7 @@ from typing import Optional, Union, Callable
 
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from network import BaseNNDiffusion, IdentityCondition
 from prior_struct.guidance import weak_center_pull_step
@@ -220,6 +221,8 @@ class ContinuousDiffusionSDE:
         guidance=None,
         lomap_projector=None,
         lomap_context=None,
+        show_progress: bool = False,
+        progress_desc: Optional[str] = None,
     ):
         device = observation.device
         dtype = observation.dtype
@@ -257,7 +260,18 @@ class ContinuousDiffusionSDE:
         loop_steps = [1] * diffusion_x_sampling_steps + list(range(1, sample_steps + 1))
         intermediates = [xt.detach().clone()] if return_intermediates else None
 
-        for i in reversed(loop_steps):
+        step_iterator = reversed(loop_steps)
+        progress_bar = None
+        if show_progress:
+            progress_bar = tqdm(
+                step_iterator,
+                total=len(loop_steps),
+                desc=progress_desc or "planner.sample_prior",
+                leave=False,
+            )
+            step_iterator = progress_bar
+
+        for i in step_iterator:
             t = torch.full((batch_size,), sample_step_schedule[i].item(), device=device, dtype=dtype)
             xt = xt * (1.0 - fix_mask) + prior * fix_mask
 
@@ -304,6 +318,9 @@ class ContinuousDiffusionSDE:
 
             if return_intermediates:
                 intermediates.append(xt.detach().clone())
+
+        if progress_bar is not None:
+            progress_bar.close()
 
         if self.clip_pred():
             xt = torch.clamp(

@@ -4,6 +4,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from .datastore import load_lomap_datastore
 from .local_manifold import LocalManifold
@@ -101,6 +102,7 @@ class LoMAPProjector:
         if context is None:
             return None
         map_prior = context["map_prior"]
+        show_progress = bool(context.get("show_progress", False))
         cache_key = (
             id(map_prior),
             int(self._runtime_traj.shape[1]),
@@ -115,10 +117,29 @@ class LoMAPProjector:
 
         scores = []
         chunk = 2048
-        for branch_field in map_prior.branch_fields:
+        branch_iterator = map_prior.branch_fields
+        if show_progress:
+            branch_iterator = tqdm(
+                map_prior.branch_fields,
+                total=len(map_prior.branch_fields),
+                desc="LoMAP branch cache",
+                leave=False,
+                dynamic_ncols=True,
+            )
+
+        for branch_field in branch_iterator:
             support = torch.as_tensor(branch_field.support_soft_hr, device=self.device, dtype=self._runtime_traj.dtype)
             branch_scores = []
-            for start in range(0, self._runtime_traj.shape[0], chunk):
+            chunk_iter = range(0, self._runtime_traj.shape[0], chunk)
+            if show_progress:
+                chunk_iter = tqdm(
+                    chunk_iter,
+                    total=(self._runtime_traj.shape[0] + chunk - 1) // chunk,
+                    desc=f"branch {branch_field.branch_id}",
+                    leave=False,
+                    dynamic_ncols=True,
+                )
+            for start in chunk_iter:
                 end = min(start + chunk, self._runtime_traj.shape[0])
                 traj = self._runtime_traj[start:end, :, :2]
                 xy = traj * obs_std_xy.view(1, 1, 2) + obs_mean_xy.view(1, 1, 2)

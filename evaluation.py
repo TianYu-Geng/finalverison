@@ -96,7 +96,7 @@ def _get_lomap_projector(config, device, runtime_cache):
     return projector
 
 
-def _build_lomap_context(structured_prior):
+def _build_lomap_context(structured_prior, show_progress=False):
     if structured_prior is None:
         return None
     return {
@@ -104,6 +104,7 @@ def _build_lomap_context(structured_prior):
         "map_prior": structured_prior.support,
         "obs_mean_xy": structured_prior.guidance["obs_mean_xy"],
         "obs_std_xy": structured_prior.guidance["obs_std_xy"],
+        "show_progress": bool(show_progress),
     }
 
 
@@ -267,7 +268,12 @@ def evaluate_prior(
                     prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                     guidance=structured_prior.guidance if structured_prior is not None else None,
                     lomap_projector=lomap_projector,
-                    lomap_context=_build_lomap_context(structured_prior),
+                    lomap_context=_build_lomap_context(
+                        structured_prior,
+                        show_progress=bool(getattr(config, "show_sampling_progress", False)),
+                    ),
+                    show_progress=bool(getattr(config, "show_sampling_progress", False)),
+                    progress_desc=f"ep{episode_idx} step{t} branch{getattr(structured_prior, 'selected_branch_id', '-')}",
                 )
                 _update_eval_progress(progress, episode_idx, t, ep_reward, structured_prior)
                 if traj.shape[0] > 1:
@@ -425,7 +431,12 @@ def evaluate_prior_with_trajectories(
                 prior_init_noise_scale=getattr(config, "prior_init_noise_scale", 0.003),
                 guidance=structured_prior.guidance if structured_prior is not None else None,
                 lomap_projector=lomap_projector,
-                lomap_context=_build_lomap_context(structured_prior),
+                lomap_context=_build_lomap_context(
+                    structured_prior,
+                    show_progress=bool(getattr(config, "show_sampling_progress", False)),
+                ),
+                show_progress=bool(getattr(config, "show_sampling_progress", False)),
+                progress_desc=f"ep{episode_idx} step{t} branch{getattr(structured_prior, 'selected_branch_id', '-')}",
             )
             _update_eval_progress(progress, episode_idx, t, ep_reward, structured_prior)
 
