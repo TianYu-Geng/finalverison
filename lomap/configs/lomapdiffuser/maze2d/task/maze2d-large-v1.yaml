@@ -1,0 +1,52 @@
+# -----------------------------------------------------------------------------
+# task 配置片段（看起来是 conf/task/maze2d-large-v1.yaml 或同类文件）
+# 作用：定义特定任务/环境（maze2d 或 multi2d）的模型结构与引导/投影相关超参
+# -----------------------------------------------------------------------------
+
+# === maze2d ===
+env_name: "maze2d-large-v1"      # D4RL 环境 ID：用于 gym.make / d4rl 数据集选择与评估环境创建
+
+dim_mult: [1, 4, 2]              # UNet/TemporalUNet 的通道倍率表（分辨率/层级的 channel multiplier）
+                                # 典型用法：base_dim * dim_mult[i] 作为第 i 个 stage 的通道数
+                                # 具体映射取决于你实现里 down/up block 的层数与 dim_mult 长度
+
+w_cg: 0.0                        # classifier guidance 权重（或“条件引导”权重）
+                                # 0.0 表示不使用 classifier guidance（只靠扩散模型本身或其他引导项）
+
+horizon: 256                     # 轨迹时域长度 T（每条轨迹包含多少步）
+                                # 一般需要和主配置里的 horizon/diffusion_steps 区分：
+                                # 这里是“轨迹长度”，不是“扩散时间步数”
+
+sg_weight: 100.                  # start-goal 约束/损失权重：强化轨迹起点/终点对齐（start/goal conditioning）
+                                # 权重大 → 更强地把生成轨迹拉到给定起点与终点（或目标区域）
+
+proj_range: [0.5, 0.8]           # 投影/流形采样相关的比例范围（常见含义之一）：
+                                # 在去噪过程中，仅在 t/T ∈ [0.5, 0.8] 的阶段启用某种“投影到流形/先验空间”的操作
+                                # 也可能表示从中均匀采样一个投影强度或投影区间；需结合你的实现确认
+
+n_manifold_samples: 10           # 每次进行“流形估计/近邻检索/投影”时采样的候选数量
+                                # 例如：从 FAISS 检索 K 个近邻，或从近邻里采样若干条轨迹用于估计 manifold 方向
+
+use_proj_mask: 0                 # 是否使用投影 mask（0/1 开关；这里 0 表示关闭）
+                                # mask 常用于：只在高风险/高不确定维度或空间区域执行投影/约束
+
+proj_mask_threshold: 0.5         # 投影 mask 阈值：当 mask score > threshold 才对该位置/维度应用投影
+                                # 在 use_proj_mask=0 时一般不起作用（但仍保留配置）
+
+action_dim_weight: 0.0           # 动作维度的损失/引导权重（如果 state-action 联合建模）
+                                # 0.0 表示不对 action 维度施加额外权重（或不对 action 维度做投影/约束）
+                                # 在纯状态轨迹规划（Maze2D 常见）里这项可能就是关掉 action 相关项
+
+
+# === multi2d ===
+# 下面是 multi2d 的备选配置（被注释掉，不会生效）
+# env_name: "maze2d-large-v1"    # 同一环境名（但 multi2d 可能指多任务/多地图设置，取决于你的代码）
+# dim_mult: [1, 4, 2]            # 同上
+# w_cg: 0.0                      # 同上
+# horizon: 256                   # 同上
+# sg_weight: 100.                # 同上
+# proj_range: [0.6, 0.7]         # 与 maze2d 的不同点：投影启用区间更窄、更靠中段
+# n_manifold_samples: 10         # 同上
+# use_proj_mask: 0               # 同上
+# proj_mask_threshold: 0.5       # 同上
+# action_dim_weight: 1.0         # 与 maze2d 的不同点：对 action 维度加权启用（更强调动作维度的拟合/约束）

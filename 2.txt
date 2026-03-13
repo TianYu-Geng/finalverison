@@ -1,0 +1,39 @@
+nohup: ignoring input
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:88: PyparsingDeprecationWarning: 'parseString' deprecated - use 'parse_string'
+  parse = parser.parseString(pattern)
+/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/matplotlib/_fontconfig_pattern.py:92: PyparsingDeprecationWarning: 'resetCache' deprecated - use 'reset_cache'
+  parser.resetCache()
+/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/matplotlib/_mathtext.py:30: PyparsingDeprecationWarning: 'enablePackrat' deprecated - use 'enable_packrat'
+  ParserElement.enablePackrat()
+In /home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/matplotlib/mpl-data/stylelib/classic.mplstyle: 'parseString' deprecated - use 'parse_string'
+In /home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/matplotlib/mpl-data/stylelib/classic.mplstyle: 'resetCache' deprecated - use 'reset_cache'
+/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/Cython/Distutils/old_build_ext.py:15: DeprecationWarning: dep_util is Deprecated. Use functions from setuptools instead.
+  from distutils.dep_util import newer, newer_group
+Warning: Flow failed to import. Set the environment variable D4RL_SUPPRESS_IMPORT_ERROR=1 to suppress this message.
+No module named 'flow'
+I0313 14:17:21.426447 130797728950080 __init__.py:88] MUJOCO_GL is not set, so an OpenGL backend will be chosen automatically.
+/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/glfw/__init__.py:917: GLFWError: (65550) b'X11: The DISPLAY environment variable is missing'
+  warnings.warn(message, GLFWError)
+I0313 14:17:21.438594 130797728950080 __init__.py:96] Successfully imported OpenGL backend: glfw
+Warning: FrankaKitchen failed to import. Set the environment variable D4RL_SUPPRESS_IMPORT_ERROR=1 to suppress this message.
+No module named 'mujoco'
+Warning: CARLA failed to import. Set the environment variable D4RL_SUPPRESS_IMPORT_ERROR=1 to suppress this message.
+No module named 'carla'
+pybullet build time: Jan 29 2025 23:20:52
+Warning: GymBullet failed to import. Set the environment variable D4RL_SUPPRESS_IMPORT_ERROR=1 to suppress this message.
+No module named 'pkg_resources'
+load datafile:   0%|          | 0/8 [00:00<?, ?it/s]load datafile:  12%|█▎        | 1/8 [00:00<00:02,  3.32it/s]load datafile:  25%|██▌       | 2/8 [00:00<00:01,  5.41it/s]load datafile:  38%|███▊      | 3/8 [00:00<00:01,  4.25it/s]load datafile:  50%|█████     | 4/8 [00:01<00:01,  3.51it/s]load datafile:  62%|██████▎   | 5/8 [00:01<00:01,  2.63it/s]load datafile:  75%|███████▌  | 6/8 [00:01<00:00,  3.46it/s]load datafile: 100%|██████████| 8/8 [00:01<00:00,  4.58it/s]
+(1062, 1265, 4)
+max discounted return: 0.0
+min discounted return: -799.0
+max normed discounted return: 1.0
+min normed discounted return: -1.0
+[load] planner ckpt: ./checkpoint/DV/maze2d-large-v1/0/model_1000000.pt
+[load] critic  ckpt: ./checkpoint/DV/maze2d-large-v1/0/model_200000.pt
+[load] PG ckpt: ./checkpoint/PG/maze2d-large-v1/0/model_1000000.pt (target_prior)
+  0%|          | 0/100 [00:00<?, ?it/s]/home/linux/anaconda3/envs/lomap/lib/python3.9/site-packages/gym/utils/seeding.py:38: DeprecationWarning: [33mWARN: Function `rng.randn(*size)` is marked as deprecated and will be removed in the future. Please use `rng.standard_normal(size)` instead.[0m
+  deprecation(
+217.8532679860825:   0%|          | 0/100 [02:16<?, ?it/s]217.8532679860825:   1%|          | 1/100 [02:16<3:45:48, 136.86s/it]226.6452168057166:   1%|          | 1/100 [04:33<3:45:48, 136.86s/it]226.6452168057166:   2%|▏         | 2/100 [04:33<3:43:30, 136.84s/it]229.45115791836577:   2%|▏         | 2/100 [06:48<3:43:30, 136.84s/it]229.45115791836577:   3%|▎         | 3/100 [06:48<3:39:51, 136.00s/it]229.2640951775225:   3%|▎         | 3/100 [09:05<3:39:51, 136.00s/it] 229.2640951775225:   4%|▍         | 4/100 [09:05<3:38:02, 136.28s/it]231.4714355194732:   4%|▍         | 4/100 [11:21<3:38:02, 136.28s/it]231.4714355194732:   5%|▌         | 5/100 [11:21<3:35:34, 136.15s/it]238.2431067379999:   5%|▌         | 5/100 [13:36<3:35:34, 136.15s/it]238.2431067379999:   6%|▌         | 6/100 [13:36<3:33:02, 135.98s/it]219.24287691806117:   6%|▌         | 6/100 [16:22<3:33:02, 135.98s/it]219.24287691806117:   7%|▋         | 7/100 [16:22<3:45:56, 145.76s/it]220.65920909873168:   7%|▋         | 7/100 [18:41<3:45:56, 145.76s/it]220.65920909873168:   8%|▊         | 8/100 [18:41<3:39:53, 143.41s/it]218.55994945149044:   8%|▊         | 8/100 [21:03<3:39:53, 143.41s/it]218.55994945149044:   9%|▉         | 9/100 [21:03<3:37:04, 143.13s/it]217.36690485988998:   9%|▉         | 9/100 [23:21<3:37:04, 143.13s/it]217.36690485988998:  10%|█         | 10/100 [23:21<3:32:23, 141.60s/it]

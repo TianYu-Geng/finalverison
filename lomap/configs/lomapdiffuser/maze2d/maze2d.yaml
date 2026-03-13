@@ -1,0 +1,58 @@
+# -----------------------------------------------------------------------------
+# Hydra 配置文件（YAML）
+# 作用：定义训练/推理流水线的全局超参数与子配置引用（task 等）
+# -----------------------------------------------------------------------------
+
+defaults:                 # Hydra 的 defaults 列表：决定会加载/合并哪些子配置
+  - _self_                # 先加载当前这个 yaml 自身（作为基底）
+  - task: maze2d-large-v1 # 再加载 conf/task/maze2d-large-v1.yaml（路径按你的工程约定）
+                          # 该 task 文件通常包含：环境名、数据集路径、观测/动作维度、预处理等
+
+pipeline_name: lomapdiffuser_d4rl_maze2d  # 本次实验/流水线名称（常用于日志目录、W&B run name、保存 ckpt 前缀等）
+mode: train                               # 运行模式：train / eval / infer 等（具体取决于你的代码如何解析）
+seed: 0                                   # 随机种子：控制 numpy/torch/env 的可复现性（需代码里统一 set_seed）
+device: cuda:0                            # 训练设备：GPU 0（你的代码需 torch.device(device)）
+multi_task: False                         # 是否多任务训练（比如多个 maze2d 任务/多个 goal 分布联合训练）
+
+# Environment
+discount: 0.997            # 折扣因子 γ：用于回报/价值类目标（若你训练 reward classifier 或 Q/优势相关项会用）
+                           # γ 越接近 1，越强调长时域回报；在轨迹规划/离线 RL 里很常见
+
+# Diffuser
+solver: ddpm               # 扩散求解器/过程类型：ddpm 表示离散时间 DDPM（而不是 DDIM / SDE / ODE 等）
+model_dim: 32              # 模型宽度/特征维度（例如 1D UNet 的 base channel/hidden dim，具体看实现）
+diffusion_steps: 256       # 训练时扩散步数 T：前向加噪的时间步数量
+sampling_steps: 256        # 采样时反向去噪步数：通常 ≤ diffusion_steps；=256 表示全步反演（最慢、最接近原始）
+predict_noise: False       # 训练目标形式：
+                           # False 常表示预测 x0（干净样本）或 v；True 常表示预测 ε（噪声）
+                           # 具体必须以你的 DiscreteDiffusionSDEEX / JannerUNet1d 的实现为准
+action_loss_weight: 1.     # 动作项损失权重（若轨迹包含 state+action，且动作重建/一致性单独加权）
+ema_rate: 0.9999           # EMA 指数滑动平均衰减系数：用于维护 ema 模型参数（推理更稳）
+
+# Training
+diffusion_gradient_steps: 1000000  # 扩散模型的梯度更新步数（总训练 step，通常指 optimizer.step 次数）
+classifier_gradient_steps: 1000000 # 分类器/引导器的训练步数（如 CumRewClassifier）
+batch_size: 64                     # batch size：每步更新使用的样本条数
+log_interval: 1000                 # 日志打印/写 TensorBoard 的间隔（每多少 step 记录一次）
+save_interval: 100000              # checkpoint 保存间隔（每多少 step 保存一次）
+
+# Faiss
+faiss_similarity: "cosine" # FAISS 检索相似度度量：cosine（通常对应向量归一化+内积）
+faiss_nlist: 1000          # IVF 索引的聚类中心数（nlist 越大：召回更细/索引更大/训练更慢；需配合数据规模）
+
+# Inference
+ckpt: latest               # 推理/评估时加载的 checkpoint 标识：latest（通常解析为最后一次保存或软链接）
+num_envs: 50               # 并行环境数量：用于同时 rollout 多个环境（vector env），提升评估吞吐
+num_episodes: 20           # 每个环境（或总计）跑多少回合用于评估（看你代码如何定义）
+num_candidates: 1          # 每个起终点采样多少条候选轨迹（>1 可做 rerank/挑最好）
+temperature: 1.0           # 采样温度：控制随机性/多样性（实现可能作用在噪声尺度或 logits/能量上）
+use_ema: True              # 推理是否使用 EMA 权重模型（通常 True 更稳定、指标更好）
+tau: 0.99                  # 置信度/软更新/后验融合系数（常见用途：
+                           # 1) 评估时对某些统计量做 EMA；2) classifier guidance 强度的平滑；
+                           # 3) 近邻检索的动量更新；必须结合你的代码确认具体含义）
+
+# hydra
+hydra:                     # Hydra 自身的运行配置（不会直接影响模型，只影响运行目录/日志等）
+  job:
+    chdir: false           # 是否在运行时切换到 hydra 输出目录：
+                           # false 表示保持当前工作目录（对相对路径更友好，避免找不到数据/ckpt）
